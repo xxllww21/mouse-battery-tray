@@ -417,6 +417,19 @@ class BatteryTrayApp:
                 try:
                     data = dev.read(64)
                     if data:
+                        # --- Rapoo / Nordic-54L vendor report (report id 0x07) ---
+                        # [0]=0x07 report id
+                        # [1] low nibble = link (0 receiver, 1 Bluetooth, 2 cable)
+                        # [7] = battery state (1 discharging, 2 charging)
+                        # [8] = battery percentage 0-100
+                        if len(data) >= 9 and data[0] == 0x07:
+                            state = data[7]
+                            batt = data[8]
+                            if state in (1, 2) and 0 <= batt <= 100:
+                                self.update_battery_level(batt, charging=(state == 2))
+                                last_recv_time = time.time()
+                                time.sleep(0.1)
+                                continue
                         # Parse battery packet: [0x03, device_id, 0x40, sub_type, battery_val, ...]
                         # Broaden data[0] == 0x03 matching to support Incott/PixArt 8K receivers where data[2] != 0x40
                         if len(data) >= 5 and data[0] == 0x03:
