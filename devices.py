@@ -187,9 +187,49 @@ def read_wlmouse_battery(path: str) -> Tuple[Optional[int], Optional[bool]]:
     return None, None
 
 
+# =============================================================================
+# Rapoo / Nordic-54L vendor collection picker
+# =============================================================================
+# Rapoo 2.4G dongles expose several 0xFF00:0x0002 collections (one per attached
+# device). Only the collection belonging to the live mouse actually streams
+# reports, so probe each candidate once and remember the one that talks.
+_NORDIC_CACHE = {"path": None}
+
+
+def _streams(path: str, wait: float = 0.4) -> bool:
+    try:
+        dev = hid.device()
+        dev.open_path(path)
+        dev.set_nonblocking(1)
+        try:
+            t0 = time.time()
+            while time.time() - t0 < wait:
+                if dev.read(64):
+                    return True
+                time.sleep(0.02)
+        finally:
+            dev.close()
+    except Exception:
+        return False
+    return False
+
+
+def _pick_nordic_collection(cands: List[Tuple[str, str, str]]):
+    cached = _NORDIC_CACHE["path"]
+    if cached and any(c[0] == cached for c in cands):
+        return next(c for c in cands if c[0] == cached)
+    for item in cands:
+        if _streams(item[0]):
+            _NORDIC_CACHE["path"] = item[0]
+            return item
+    _NORDIC_CACHE["path"] = None
+    return cands[0] if cands else None
+
+
 def find_device_path() -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Scan HID devices for standard supported mice with prioritized endpoint matching."""
     p1_match = None  # Interface 2 + usage_page 10 (Best match for Attack Shark X11/X6/X3/R1)
+    nordic_cands = []  # Rapoo/Nordic-54L 0xFF00:0x0002 collections (resolved by probing)
     p2_match = None  # usage_page 10 or >= 0xff00 or interface 2
     p3_match = None  # interface 1
     fallback = None  # any matching VID endpoint
@@ -221,6 +261,8 @@ def find_device_path() -> Tuple[Optional[str], Optional[str], Optional[str]]:
             if if_num == 2 and usage_page == 10:
                 p1_match = item
                 break  # Perfect match — no need to scan further
+            elif usage_page == 0xff00 and d.get('usage') == 2:
+                nordic_cands.append(item)
             elif (usage_page == 10 or usage_page >= 0xff00 or if_num == 2) and p2_match is None:
                 p2_match = item
             elif if_num == 1 and p3_match is None:
@@ -233,6 +275,10 @@ def find_device_path() -> Tuple[Optional[str], Optional[str], Optional[str]]:
 
     if p1_match:
         return p1_match
+    if nordic_cands:
+        picked = _pick_nordic_collection(nordic_cands)
+        if picked:
+            return picked
     if p2_match:
         return p2_match
     if p3_match:
