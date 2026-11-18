@@ -128,3 +128,18 @@ Special thanks to all community members who contributed device ID mappings and h
 - **u/djnemoson** – Provided hardware ID dump for the **Pulsar X2 Wireless** (`VID 0x25a7`, `PID 0xfa7c` / `0xfa7b`).
 - **u/MarcBelmaati** – Provided hardware ID dump for the **Razer Wireless / HyperPolling Dongle** (`VID 0x1532`, `PID 0x00b3` / `0x00a5`).
 - **u/TwistedVincenzo** – Provided hardware ID dump for the **Pulsar Xlite Wireless**.
+
+---
+
+## 本仓库的附加改动：雷柏（Rapoo）支持
+
+原版只解析 Beken/CompX 的 `0x03` 报文，雷柏 2.4G 接收器发的是 Nordic-54L 的 `0x07` 报文，所以电量一直是空的。
+
+本次补了两处：
+
+1. **`battery_tray.pyw`** — 新增 `0x07` 报文解析：
+   `[0]=0x07`，`[1]` 低半字节为连接方式（0 接收器 / 1 蓝牙 / 2 有线），`[7]` 为状态（1 放电 / 2 充电），`[8]` 为电量百分比。
+2. **`devices.py`** — 雷柏接收器会暴露多个 `0xFF00:0x0002` 集合，只有一个真正在推报文。
+   新增探测逻辑：逐个试读 0.4 秒，缓存能出数据的那个端点（`_pick_nordic_collection`）。
+
+实测设备：Rapoo Gaming Device（VID `0x24AE`），接收器模式下读到 `07 40 03 40 06 40 06 01 64 00 03 84 00 0f 4b 10 02 05 a9` → 100%、放电中。
